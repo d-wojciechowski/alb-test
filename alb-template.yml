@@ -52,6 +52,7 @@ Resources:
     Type: AWS::EC2::VPC
     Properties:
       CidrBlock: 10.0.0.0/24
+      EnableDnsHostnames: true
       EnableDnsSupport: true
       InstanceTenancy: default
       Tags:
@@ -75,7 +76,7 @@ Resources:
         InternetGatewayId: !Ref DefaultInternetGateway
         VpcId: !Ref VPC
 
-  Subnet1:
+  PublicSubnet1:
     Type: AWS::EC2::Subnet
     Properties:
       AvailabilityZone: eu-west-1a
@@ -88,7 +89,7 @@ Resources:
           Value: do-wojciechowski@wp.pl
       VpcId: !Ref VPC
 
-  Subnet2:
+  PublicSubnet2:
     Type: AWS::EC2::Subnet
     Properties:
       AvailabilityZone: eu-west-1b
@@ -119,6 +120,18 @@ Resources:
       RouteTableId: !Ref VPCDefaultRouteTable
       DestinationCidrBlock: 0.0.0.0/0
 
+  PublicSubnet1DefaultRouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId: !Ref VPCDefaultRouteTable
+      SubnetId: !Ref PublicSubnet1
+
+  PublicSubnet2DefaultRouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId: !Ref VPCDefaultRouteTable
+      SubnetId: !Ref PublicSubnet2
+
 
   Instance1:
     Type: 'AWS::EC2::Instance'
@@ -130,7 +143,7 @@ Resources:
         - !GetAtt "InstanceSecurityGroup.GroupId"
       KeyName: !Ref KeyName
       SubnetId:
-        Ref: Subnet1
+        Ref: PublicSubnet1
       Tags:
         - Key: Name
           Value: !Sub ${AWS::StackName}-Instance-1
@@ -155,7 +168,7 @@ Resources:
         - !GetAtt "InstanceSecurityGroup.GroupId"
       KeyName: !Ref KeyName
       SubnetId:
-        Ref: Subnet2
+        Ref: PublicSubnet2
       Tags:
         - Key: Name
           Value: !Sub ${AWS::StackName}-Instance-2
@@ -175,19 +188,84 @@ Resources:
     Properties:
       GroupName: !Sub ${AWS::StackName}-InstanceSecurityGroup
       VpcId: !Ref VPC
-      GroupDescription: Enable SSH access via port 22
+      GroupDescription: Enable HTTP:80 Access to ELB Security Group
       SecurityGroupIngress:
         - IpProtocol: tcp
           FromPort: 80
           ToPort: 80
-          CidrIp: 0.0.0.0/0
+          SourceSecurityGroupId: !GetAtt "ELBSecurityGroup.GroupId"
+      Tags:
+        - Key: Name
+          Value: !Sub ${AWS::StackName}-InstanceSecurityGroup
+        - Key: Owner
+          Value: do-wojciechowski@wp.pl
+
+  # ELB
+  LoadBalancer:
+    Type: AWS::ElasticLoadBalancingV2::LoadBalancer
+    Properties:
+      IpAddressType: ipv4
+      Name: !Sub ${AWS::StackName}-ALB
+      Scheme: internet-facing
+      SecurityGroups:
+        - !GetAtt "ELBSecurityGroup.GroupId"
+      Subnets:
+        - Ref: PublicSubnet1
+        - Ref: PublicSubnet2
+      Tags:
+        - Key: Name
+          Value: !Sub ${AWS::StackName}-ALB
+        - Key: Owner
+          Value: do-wojciechowski@wp.pl
+      Type: application
+
+  Listener:
+    Type: AWS::ElasticLoadBalancingV2::Listener
+    Properties:
+      DefaultActions:
+        - TargetGroupArn: !Ref TargetGroup
+          Type: forward
+      LoadBalancerArn: !Ref LoadBalancer
+      Port: 80
+      Protocol: HTTP
+
+  TargetGroup:
+    Type: AWS::ElasticLoadBalancingV2::TargetGroup
+    Properties:
+      HealthCheckEnabled: true
+      HealthCheckIntervalSeconds: 30
+      HealthCheckPath: /index.html
+      HealthCheckProtocol: HTTP
+      HealthCheckTimeoutSeconds: 10
+      HealthyThresholdCount: 2
+      Matcher:
+        HttpCode: 200
+      Name: !Sub ${AWS::StackName}-TargetGroup
+      Port: 80
+      Protocol: HTTP
+      UnhealthyThresholdCount: 2
+      TargetType: instance
+      Targets:
+        - Id: !Ref Instance1
+          Port: 80
+        - Id: !Ref Instance2
+          Port: 80
+      VpcId: !Ref VPC
+
+  ELBSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupName: !Sub ${AWS::StackName}-ELBSecurityGroup
+      VpcId: !Ref VPC
+      GroupDescription: ELB Security Group
+      SecurityGroupIngress:
         - IpProtocol: tcp
           FromPort: 80
           ToPort: 80
           CidrIp: 0.0.0.0/0
       Tags:
         - Key: Name
-          Value: !Sub ${AWS::StackName}-RouteTable
+          Value: !Sub ${AWS::StackName}-ELBSecurityGroup
         - Key: Owner
           Value: do-wojciechowski@wp.pl
 
