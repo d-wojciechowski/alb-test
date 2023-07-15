@@ -1,0 +1,198 @@
+AWSTemplateFormatVersion: 2010-09-09
+
+
+Parameters:
+  KeyName:
+    Description: Name of an existing EC2 KeyPair to enable SSH access to the instance
+    Default: DefaultEC2KeyPair
+    Type: 'AWS::EC2::KeyPair::KeyName'
+    ConstraintDescription: must be the name of an existing EC2 KeyPair.
+  InstanceType:
+    Description: WebServer EC2 instance type
+    Type: String
+    Default: t2.micro
+    AllowedValues:
+      - t2.nano
+      - t2.micro
+      - t2.small
+    ConstraintDescription: must be a valid EC2 instance type.
+  SSHLocation:
+    Description: The IP address range that can be used to SSH to the EC2 instances
+    Type: String
+    MinLength: '9'
+    MaxLength: '18'
+    Default: 0.0.0.0/0
+    AllowedPattern: '(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})/(\d{1,2})'
+    ConstraintDescription: must be a valid IP CIDR range of the form x.x.x.x/x.
+  AmiId:
+    Description: AMI ID to be used for image creation of EC2 instance
+    Type: String
+    Default: ami-0fb2f0b847d44d4f0
+
+
+Mappings:
+  AWSInstanceType2Arch:
+    t2.nano:
+      Arch: HVM64
+    t2.micro:
+      Arch: HVM64
+    t2.small:
+      Arch: HVM64
+  AWSInstanceType2NATArch:
+    t2.nano:
+      Arch: NATHVM64
+    t2.micro:
+      Arch: NATHVM64
+    t2.small:
+      Arch: NATHVM64
+
+Resources:
+
+  VPC:
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock: 10.0.0.0/24
+      EnableDnsSupport: true
+      InstanceTenancy: default
+      Tags:
+        - Key: Name
+          Value: !Sub ${AWS::StackName}-VPC
+        - Key: Owner
+          Value: do-wojciechowski@wp.pl
+
+  DefaultInternetGateway:
+    Type: AWS::EC2::InternetGateway
+    Properties:
+      Tags:
+        - Key: Name
+          Value: !Sub ${AWS::StackName}-IGW
+        - Key: Owner
+          Value: do-wojciechowski@wp.pl
+
+  DefaultVPCGatewayAttachment:
+    Type: AWS::EC2::VPCGatewayAttachment
+    Properties:
+        InternetGatewayId: !Ref DefaultInternetGateway
+        VpcId: !Ref VPC
+
+  Subnet1:
+    Type: AWS::EC2::Subnet
+    Properties:
+      AvailabilityZone: eu-west-1a
+      CidrBlock: 10.0.0.0/28
+      MapPublicIpOnLaunch: false
+      Tags:
+        - Key: Name
+          Value: !Sub ${AWS::StackName}-Subnet-1
+        - Key: Owner
+          Value: do-wojciechowski@wp.pl
+      VpcId: !Ref VPC
+
+  Subnet2:
+    Type: AWS::EC2::Subnet
+    Properties:
+      AvailabilityZone: eu-west-1b
+      CidrBlock: 10.0.0.16/28
+      MapPublicIpOnLaunch: false
+      Tags:
+        - Key: Name
+          Value: !Sub ${AWS::StackName}-Subnet-2
+        - Key: Owner
+          Value: do-wojciechowski@wp.pl
+      VpcId: !Ref VPC
+
+  VPCDefaultRouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref VPC
+      Tags:
+        - Key: Name
+          Value: !Sub ${AWS::StackName}-RouteTable
+        - Key: Owner
+          Value: do-wojciechowski@wp.pl
+
+  DefaultVPCRouteTableOutboundRoute:
+    Type: AWS::EC2::Route
+    DependsOn: DefaultVPCGatewayAttachment
+    Properties:
+      GatewayId: !Ref DefaultInternetGateway
+      RouteTableId: !Ref VPCDefaultRouteTable
+      DestinationCidrBlock: 0.0.0.0/0
+
+
+  Instance1:
+    Type: 'AWS::EC2::Instance'
+    Properties:
+      AvailabilityZone: eu-west-1a
+      ImageId: !Ref AmiId
+      InstanceType: !Ref InstanceType
+      SecurityGroupIds:
+        - !GetAtt "InstanceSecurityGroup.GroupId"
+      KeyName: !Ref KeyName
+      SubnetId:
+        Ref: Subnet1
+      Tags:
+        - Key: Name
+          Value: !Sub ${AWS::StackName}-Instance-1
+        - Key: Owner
+          Value: do-wojciechowski@wp.pl
+      UserData:
+        Fn::Base64: !Sub |
+          #!/bin/bash -xe
+          yum update -y
+          yum install -y httpd
+          systemctl start httpd
+          systemctl enable httpd
+          echo "<html><body><h1>Hello World, I am instance 1</h1></body></html>" > /var/www/html/index.html
+
+  Instance2:
+    Type: 'AWS::EC2::Instance'
+    Properties:
+      AvailabilityZone: eu-west-1b
+      ImageId: !Ref AmiId
+      InstanceType: !Ref InstanceType
+      SecurityGroupIds:
+        - !GetAtt "InstanceSecurityGroup.GroupId"
+      KeyName: !Ref KeyName
+      SubnetId:
+        Ref: Subnet2
+      Tags:
+        - Key: Name
+          Value: !Sub ${AWS::StackName}-Instance-2
+        - Key: Owner
+          Value: do-wojciechowski@wp.pl
+      UserData:
+        Fn::Base64: !Sub |
+          #!/bin/bash -xe
+          yum update -y
+          yum install -y httpd
+          systemctl start httpd
+          systemctl enable httpd
+          echo "<html><body><h1>Hello World, I am instance 2</h1></body></html>" > /var/www/html/index.html
+
+  InstanceSecurityGroup:
+    Type: 'AWS::EC2::SecurityGroup'
+    Properties:
+      GroupName: !Sub ${AWS::StackName}-InstanceSecurityGroup
+      VpcId: !Ref VPC
+      GroupDescription: Enable SSH access via port 22
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          CidrIp: 0.0.0.0/0
+        - IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          CidrIp: 0.0.0.0/0
+      Tags:
+        - Key: Name
+          Value: !Sub ${AWS::StackName}-RouteTable
+        - Key: Owner
+          Value: do-wojciechowski@wp.pl
+
+#Outputs:
+#  InstanceId:
+#    Description: InstanceId of the newly created EC2 instance
+#    Value: !Ref EC2Instance
+
