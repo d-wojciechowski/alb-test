@@ -48,6 +48,7 @@ Mappings:
 
 Resources:
 
+## NETWORKING
   VPC:
     Type: AWS::EC2::VPC
     Properties:
@@ -79,28 +80,34 @@ Resources:
   PublicSubnet1:
     Type: AWS::EC2::Subnet
     Properties:
-      AvailabilityZone: eu-west-1a
+      AvailabilityZone:
+        Fn::Select:
+          - '0'
+          - Fn::GetAZs: ''
       CidrBlock: 10.0.0.0/28
+      VpcId: !Ref VPC
       MapPublicIpOnLaunch: false
       Tags:
         - Key: Name
           Value: !Sub ${AWS::StackName}-Subnet-1
         - Key: Owner
           Value: do-wojciechowski@wp.pl
-      VpcId: !Ref VPC
 
   PublicSubnet2:
     Type: AWS::EC2::Subnet
     Properties:
-      AvailabilityZone: eu-west-1b
+      AvailabilityZone:
+        Fn::Select:
+          - '1'
+          - Fn::GetAZs: ''
       CidrBlock: 10.0.0.16/28
+      VpcId: !Ref VPC
       MapPublicIpOnLaunch: false
       Tags:
         - Key: Name
           Value: !Sub ${AWS::StackName}-Subnet-2
         - Key: Owner
           Value: do-wojciechowski@wp.pl
-      VpcId: !Ref VPC
 
   VPCDefaultRouteTable:
     Type: AWS::EC2::RouteTable
@@ -132,18 +139,21 @@ Resources:
       RouteTableId: !Ref VPCDefaultRouteTable
       SubnetId: !Ref PublicSubnet2
 
+## COMPUTE
 
   Instance1:
     Type: 'AWS::EC2::Instance'
     Properties:
-      AvailabilityZone: eu-west-1a
+      AvailabilityZone:
+        Fn::Select:
+          - '0'
+          - Fn::GetAZs: ''
       ImageId: !Ref AmiId
       InstanceType: !Ref InstanceType
       SecurityGroupIds:
         - !GetAtt "InstanceSecurityGroup.GroupId"
       KeyName: !Ref KeyName
-      SubnetId:
-        Ref: PublicSubnet1
+      SubnetId: !Ref PublicSubnet1
       Tags:
         - Key: Name
           Value: !Sub ${AWS::StackName}-Instance-1
@@ -161,14 +171,16 @@ Resources:
   Instance2:
     Type: 'AWS::EC2::Instance'
     Properties:
-      AvailabilityZone: eu-west-1b
+      AvailabilityZone:
+        Fn::Select:
+          - '1'
+          - Fn::GetAZs: ''
       ImageId: !Ref AmiId
       InstanceType: !Ref InstanceType
       SecurityGroupIds:
         - !GetAtt "InstanceSecurityGroup.GroupId"
       KeyName: !Ref KeyName
-      SubnetId:
-        Ref: PublicSubnet2
+      SubnetId: !Ref PublicSubnet2
       Tags:
         - Key: Name
           Value: !Sub ${AWS::StackName}-Instance-2
@@ -194,6 +206,10 @@ Resources:
           FromPort: 80
           ToPort: 80
           SourceSecurityGroupId: !GetAtt "ELBSecurityGroup.GroupId"
+        - IpProtocol: tcp
+          FromPort: 22
+          ToPort: 22
+          SourceSecurityGroupId: !GetAtt "BastionSecurityGroup.GroupId"
       Tags:
         - Key: Name
           Value: !Sub ${AWS::StackName}-InstanceSecurityGroup
@@ -268,6 +284,66 @@ Resources:
           Value: !Sub ${AWS::StackName}-ELBSecurityGroup
         - Key: Owner
           Value: do-wojciechowski@wp.pl
+
+  # BASTION
+
+  BastionInstance:
+    Type: 'AWS::EC2::Instance'
+    Properties:
+      AvailabilityZone:
+        Fn::Select:
+          - '0'
+          - Fn::GetAZs: ''
+      ImageId: !Ref AmiId
+      InstanceType: !Ref InstanceType
+      SecurityGroupIds:
+        - !GetAtt "BastionSecurityGroup.GroupId"
+      KeyName: !Ref KeyName
+      SubnetId: !Ref BastionSubnet
+      Tags:
+        - Key: Name
+          Value: !Sub ${AWS::StackName}-BastionInstance
+        - Key: Owner
+          Value: do-wojciechowski@wp.pl
+
+  BastionSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupName: !Sub ${AWS::StackName}-BastionSecurityGroup
+      VpcId: !Ref VPC
+      GroupDescription: Bastion Security Group
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 22
+          ToPort: 22
+          CidrIp: 0.0.0.0/0
+      Tags:
+        - Key: Name
+          Value: !Sub ${AWS::StackName}-BastionSecurityGroup
+        - Key: Owner
+          Value: do-wojciechowski@wp.pl
+
+  BastionSubnet:
+    Type: AWS::EC2::Subnet
+    Properties:
+      AvailabilityZone:
+        Fn::Select:
+          - '0'
+          - Fn::GetAZs: ''
+      CidrBlock: 10.0.0.32/28
+      VpcId: !Ref VPC
+      MapPublicIpOnLaunch: true
+      Tags:
+        - Key: Name
+          Value: !Sub ${AWS::StackName}-BastionSubnet
+        - Key: Owner
+          Value: do-wojciechowski@wp.pl
+
+  BastionSubnetDefaultRouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId: !Ref VPCDefaultRouteTable
+      SubnetId: !Ref BastionSubnet
 
 #Outputs:
 #  InstanceId:
