@@ -70,14 +70,64 @@ Resources:
           Value: !Sub ${AWS::StackName}-IGW
         - Key: Owner
           Value: do-wojciechowski@wp.pl
-
+          
   DefaultVPCGatewayAttachment:
     Type: AWS::EC2::VPCGatewayAttachment
     Properties:
-        InternetGatewayId: !Ref DefaultInternetGateway
-        VpcId: !Ref VPC
-
+      InternetGatewayId: !Ref DefaultInternetGateway
+      VpcId: !Ref VPC
+      
+  NATElasticIP:
+    Type: AWS::EC2::EIP
+    Properties:
+      Domain: vpc
+    DependsOn: DefaultVPCGatewayAttachment
+    
   PublicSubnet1:
+    Type: AWS::EC2::Subnet
+    Properties:
+      AvailabilityZone:
+        Fn::Select:
+          - '0'
+          - Fn::GetAZs: ''
+      CidrBlock: 10.0.0.32/28
+      VpcId: !Ref VPC
+      MapPublicIpOnLaunch: true
+      Tags:
+        - Key: Name
+          Value: !Sub ${AWS::StackName}-PublicSubnet1
+        - Key: Owner
+          Value: do-wojciechowski@wp.pl
+
+  PublicSubnet1PublicRouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId: !Ref PublicRouteTable
+      SubnetId: !Ref PublicSubnet1
+
+  PublicSubnet2:
+    Type: AWS::EC2::Subnet
+    Properties:
+      AvailabilityZone:
+        Fn::Select:
+          - '1'
+          - Fn::GetAZs: ''
+      CidrBlock: 10.0.0.48/28
+      VpcId: !Ref VPC
+      MapPublicIpOnLaunch: true
+      Tags:
+        - Key: Name
+          Value: !Sub ${AWS::StackName}-PublicSubnet2
+        - Key: Owner
+          Value: do-wojciechowski@wp.pl
+
+  PublicSubnet2PublicRouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId: !Ref PublicRouteTable
+      SubnetId: !Ref PublicSubnet2
+      
+  PrivateSubnet1:
     Type: AWS::EC2::Subnet
     Properties:
       AvailabilityZone:
@@ -89,11 +139,11 @@ Resources:
       MapPublicIpOnLaunch: false
       Tags:
         - Key: Name
-          Value: !Sub ${AWS::StackName}-Subnet-1
+          Value: !Sub ${AWS::StackName}-PrivateSubnet1
         - Key: Owner
           Value: do-wojciechowski@wp.pl
 
-  PublicSubnet2:
+  PrivateSubnet2:
     Type: AWS::EC2::Subnet
     Properties:
       AvailabilityZone:
@@ -105,39 +155,67 @@ Resources:
       MapPublicIpOnLaunch: false
       Tags:
         - Key: Name
-          Value: !Sub ${AWS::StackName}-Subnet-2
+          Value: !Sub ${AWS::StackName}-PrivateSubnet2
         - Key: Owner
           Value: do-wojciechowski@wp.pl
-
-  VPCDefaultRouteTable:
+          
+  NATGateway:
+    Type: AWS::EC2::NatGateway
+    DependsOn: NATElasticIP
+    Properties:
+      AllocationId:
+        Fn::GetAtt:
+          - NATElasticIP
+          - AllocationId
+      SubnetId:
+        Ref: PublicSubnet1
+  
+  PublicRouteTable:
     Type: AWS::EC2::RouteTable
     Properties:
       VpcId: !Ref VPC
       Tags:
         - Key: Name
-          Value: !Sub ${AWS::StackName}-RouteTable
+          Value: !Sub ${AWS::StackName}-PublicRouteTable
+        - Key: Owner
+          Value: do-wojciechowski@wp.pl
+  
+  PrivateRouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref VPC
+      Tags:
+        - Key: Name
+          Value: !Sub ${AWS::StackName}-PrivateRouteTable
         - Key: Owner
           Value: do-wojciechowski@wp.pl
 
-  DefaultVPCRouteTableOutboundRoute:
+  NATGatewayRoute:
+    Type: AWS::EC2::Route
+    Properties:
+      NatGatewayId: !Ref NATGateway
+      RouteTableId: !Ref PrivateRouteTable
+      DestinationCidrBlock: 0.0.0.0/0
+
+  PublicRouteTableOutboundRoute:
     Type: AWS::EC2::Route
     DependsOn: DefaultVPCGatewayAttachment
     Properties:
       GatewayId: !Ref DefaultInternetGateway
-      RouteTableId: !Ref VPCDefaultRouteTable
+      RouteTableId: !Ref PublicRouteTable
       DestinationCidrBlock: 0.0.0.0/0
 
-  PublicSubnet1DefaultRouteTableAssociation:
+  PrivateSubnet1DefaultRouteTableAssociation:
     Type: AWS::EC2::SubnetRouteTableAssociation
     Properties:
-      RouteTableId: !Ref VPCDefaultRouteTable
-      SubnetId: !Ref PublicSubnet1
+      RouteTableId: !Ref PrivateRouteTable
+      SubnetId: !Ref PrivateSubnet1
 
-  PublicSubnet2DefaultRouteTableAssociation:
+  PrivateSubnet2DefaultRouteTableAssociation:
     Type: AWS::EC2::SubnetRouteTableAssociation
     Properties:
-      RouteTableId: !Ref VPCDefaultRouteTable
-      SubnetId: !Ref PublicSubnet2
+      RouteTableId: !Ref PrivateRouteTable
+      SubnetId: !Ref PrivateSubnet2
 
 ## COMPUTE
 
@@ -153,7 +231,7 @@ Resources:
       SecurityGroupIds:
         - !GetAtt "InstanceSecurityGroup.GroupId"
       KeyName: !Ref KeyName
-      SubnetId: !Ref PublicSubnet1
+      SubnetId: !Ref PrivateSubnet1
       Tags:
         - Key: Name
           Value: !Sub ${AWS::StackName}-Instance-1
@@ -180,7 +258,7 @@ Resources:
       SecurityGroupIds:
         - !GetAtt "InstanceSecurityGroup.GroupId"
       KeyName: !Ref KeyName
-      SubnetId: !Ref PublicSubnet2
+      SubnetId: !Ref PrivateSubnet2
       Tags:
         - Key: Name
           Value: !Sub ${AWS::StackName}-Instance-2
@@ -299,7 +377,7 @@ Resources:
       SecurityGroupIds:
         - !GetAtt "BastionSecurityGroup.GroupId"
       KeyName: !Ref KeyName
-      SubnetId: !Ref BastionSubnet
+      SubnetId: !Ref PublicSubnet1
       Tags:
         - Key: Name
           Value: !Sub ${AWS::StackName}-BastionInstance
@@ -322,28 +400,6 @@ Resources:
           Value: !Sub ${AWS::StackName}-BastionSecurityGroup
         - Key: Owner
           Value: do-wojciechowski@wp.pl
-
-  BastionSubnet:
-    Type: AWS::EC2::Subnet
-    Properties:
-      AvailabilityZone:
-        Fn::Select:
-          - '0'
-          - Fn::GetAZs: ''
-      CidrBlock: 10.0.0.32/28
-      VpcId: !Ref VPC
-      MapPublicIpOnLaunch: true
-      Tags:
-        - Key: Name
-          Value: !Sub ${AWS::StackName}-BastionSubnet
-        - Key: Owner
-          Value: do-wojciechowski@wp.pl
-
-  BastionSubnetDefaultRouteTableAssociation:
-    Type: AWS::EC2::SubnetRouteTableAssociation
-    Properties:
-      RouteTableId: !Ref VPCDefaultRouteTable
-      SubnetId: !Ref BastionSubnet
 
 #Outputs:
 #  InstanceId:
